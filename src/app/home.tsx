@@ -2,101 +2,128 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors } from './theme/colors';
-
-type CardProps = {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  onPress: () => void;
-};
-
-function Card({ icon, label, onPress }: CardProps) {
-  return (
-    <Pressable
-      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-    >
-      <Ionicons name={icon} size={32} color={colors.accentSoft} />
-      <Text style={styles.cardLabel}>{label}</Text>
-    </Pressable>
-  );
-}
+import { useAppTheme } from '../context/ThemeContext';
 
 export default function Home() {
-  return (
-    <View style={styles.container}>
-      <StatusBar style="light" />
+  const { theme, fs } = useAppTheme();
 
+  return (
+    <View style={[styles.container, { backgroundColor: theme.bg }]}>
+      <StatusBar style={theme.statusBar} />
+
+      <View style={[styles.glow, { backgroundColor: theme.accentDim }]} pointerEvents="none" />
+
+      {/* Header */}
       <View style={styles.header}>
-        <Ionicons name="eye-outline" size={36} color={colors.accent} />
-        <Text style={styles.title}>Íris</Text>
-        <Text style={styles.subtitle}>O que deseja fazer?</Text>
+        <View>
+          <Text style={[styles.greeting, { color: theme.textMuted, fontSize: fs.sm }]}>
+            Olá, bem-vindo(a) ao
+          </Text>
+          <Text style={[styles.title, { color: theme.text, fontSize: fs.xxl }]}>Íris</Text>
+        </View>
       </View>
 
-      <View style={styles.grid}>
-        <Card
-          icon="camera-outline"
-          label="Identificar objeto"
+      {/* Buttons */}
+      <View style={styles.actions}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.mainBtn,
+            { backgroundColor: theme.accentStrong, minHeight: fs.touchTarget + 56 },
+            pressed && { opacity: 0.85 },
+          ]}
           onPress={() => router.push('/camera')}
-        />
-        {/* <Card
-          icon="information-circle-outline"
-          label="Sobre"
-          onPress={() => router.push('/about')}
-        /> */}
+          accessibilityRole="button"
+          accessibilityLabel="Iniciar navegação com detecção de obstáculos em tempo real"
+        >
+          <View style={styles.mainBtnIcon}>
+            <Ionicons name="navigate-outline" size={36} color="#fff" />
+          </View>
+          <View>
+            <Text style={[styles.mainBtnTitle, { fontSize: fs.xl }]}>Iniciar Navegação</Text>
+            <Text style={[styles.mainBtnSub, { fontSize: fs.sm }]}>Detecção de obstáculos ao vivo</Text>
+          </View>
+        </Pressable>
+
+        <View style={styles.secondaryRow}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.secondaryBtn,
+              { backgroundColor: theme.accentDim, borderColor: theme.accentBorder, minHeight: fs.touchTarget + 32 },
+              pressed && { opacity: 0.75 },
+            ]}
+            onPress={() => router.push('/settings')}
+            accessibilityRole="button"
+            accessibilityLabel="Abrir configurações de acessibilidade"
+          >
+            <Ionicons name="settings-outline" size={28} color={theme.accent} />
+            <Text style={[styles.secondaryLabel, { color: theme.text, fontSize: fs.md }]}>Configurações</Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.helpBtn,
+              { backgroundColor: theme.infoDim, borderColor: theme.infoBorder, minHeight: fs.touchTarget + 32 },
+              pressed && { opacity: 0.75 },
+            ]}
+            onPress={() => router.push('/help')}
+            accessibilityRole="button"
+            accessibilityLabel="Abrir ajuda e tutorial"
+          >
+            <Ionicons name="help-circle-outline" size={28} color={theme.info} />
+            <Text style={[styles.secondaryLabel, { color: theme.text, fontSize: fs.md }]}>Ajuda</Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-    paddingHorizontal: 24,
-    paddingTop: 80,
+  container: { flex: 1 },
+  glow: {
+    position: 'absolute', top: '40%', alignSelf: 'center',
+    width: 360, height: 360, borderRadius: 180,
   },
   header: {
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 48,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 28, paddingTop: 56, marginBottom: 20,
   },
-  title: {
-    color: colors.text,
-    fontSize: 40,
-    fontWeight: '800',
-    letterSpacing: -0.5,
+  greeting: { fontWeight: '500', marginBottom: 4 },
+  title: { fontWeight: '800', lineHeight: undefined },
+  logoBox: {
+    width: 52, height: 52, borderRadius: 16,
+    borderWidth: 2, alignItems: 'center', justifyContent: 'center',
   },
-  subtitle: {
-    color: colors.textMuted,
-    fontSize: 16,
-    fontWeight: '500',
+  statusCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    marginHorizontal: 28, borderWidth: 2, borderRadius: 18,
+    padding: 14, marginBottom: 24,
   },
-  grid: {
-    flexDirection: 'row',
-    gap: 16,
-    justifyContent: 'center',
+  statusDot: { width: 14, height: 14, borderRadius: 7 },
+  statusTitle: { fontWeight: '700' },
+  statusSub: {},
+  actions: { flex: 1, paddingHorizontal: 28, gap: 14 },
+  mainBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 20,
+    borderRadius: 28, paddingHorizontal: 28,
+    shadowColor: '#7c5ce8', shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.55, shadowRadius: 24, elevation: 12,
   },
-  card: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: 20,
-    paddingVertical: 32,
-    alignItems: 'center',
-    gap: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(124,92,255,0.2)',
+  mainBtnIcon: {
+    width: 68, height: 68, borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center', justifyContent: 'center',
   },
-  cardPressed: {
-    opacity: 0.7,
-    backgroundColor: colors.primary,
+  mainBtnTitle: { color: '#fff', fontWeight: '800', marginBottom: 4 },
+  mainBtnSub: { color: 'rgba(255,255,255,0.9)', fontWeight: '500' },
+  secondaryRow: { flexDirection: 'row', gap: 14 },
+  secondaryBtn: {
+    flex: 1, borderRadius: 22, borderWidth: 2,
+    alignItems: 'center', justifyContent: 'center', gap: 8,
   },
-  cardLabel: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'center',
+  helpBtn: {
+    flex: 1, borderRadius: 22, borderWidth: 2,
+    alignItems: 'center', justifyContent: 'center', gap: 8,
   },
+  secondaryLabel: { fontWeight: '700' },
 });

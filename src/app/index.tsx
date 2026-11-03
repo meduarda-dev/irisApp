@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
-import { colors } from './theme/colors';
+import { darkTheme as colors } from './theme/colors';
 
 const BAR_W = 96;
 const STAGE_W = 280;
@@ -23,7 +23,7 @@ function Glow() {
             borderRadius: s / 2,
             left: STAGE_W / 2 - s / 2,
             top: 175 - s / 2,
-            backgroundColor: colors.accent,
+            backgroundColor: colors.accentStrong,
             opacity: 0.045,
           }}
         />
@@ -59,7 +59,7 @@ export default function Splash() {
       easing: Easing.inOut(Easing.cubic),
       useNativeDriver: true,
     }).start(({ finished }) => {
-      if (finished) router.replace('/home'); // depois: '/onboarding'
+      if (finished) router.replace('/onboarding');
     });
 
     return () => {
@@ -142,7 +142,7 @@ const styles = StyleSheet.create({
   },
   title: { color: '#FFFFFF', fontSize: 44, fontWeight: '800', letterSpacing: -0.5 },
   subtitle: {
-    color: colors.accentSoft,
+    color: colors.accent,
     fontSize: 13,
     fontWeight: '600',
     letterSpacing: 3,
@@ -156,5 +156,5 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: 'rgba(124,92,255,0.2)',
   },
-  fill: { width: BAR_W, height: 3, backgroundColor: colors.accent },
+  fill: { width: BAR_W, height: 3, backgroundColor: colors.accentStrong },
 });

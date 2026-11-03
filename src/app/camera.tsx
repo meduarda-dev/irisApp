@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import * as Speech from 'expo-speech';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -11,9 +12,9 @@ import { labelFor } from '../detection/labels';
 import { type Sample } from '../detection/useBenchmark';
 import { colors } from './theme/colors';
 
-const MODEL_NAME = 'mobilenet_ssd';
 const DELEGATE: 'cpu' | 'android-gpu' | 'nnapi' = 'cpu';
 const delegates = DELEGATE === 'cpu' ? [] : [DELEGATE];
+const TTS_COOLDOWN_MS = 4000; // intervalo mínimo entre falas
 
 const now = () => {
   'worklet';
@@ -27,7 +28,10 @@ export default function CameraScreen() {
   const device = useCameraDevice('back');
   const [detections, setDetections] = useState<Detection[]>([]);
   const [ms, setMs] = useState(0);
+  const [speaking, setSpeaking] = useState(false);
   const lastUpdate = useRef(0);
+  const lastSpoken = useRef('');
+  const lastSpokenAt = useRef(0);
 
   const detector = useTensorflowModel(
     require('../assets/models/mobilenet_ssd.tflite'),
@@ -48,6 +52,15 @@ export default function CameraScreen() {
       setDetections(items);
     }
   }, []);
+
+  // Para o TTS ao sair da tela
+  useEffect(() => {
+    return () => { Speech.stop(); };
+  }, []);
+
+  useEffect(() => {
+    if (!hasPermission) requestPermission();
+  }, [hasPermission, requestPermission]);
 
   const frameOutput = useFrameOutput({
     pixelFormat: 'yuv',
@@ -82,15 +95,10 @@ export default function CameraScreen() {
     },
   });
 
-  useEffect(() => {
-    if (!hasPermission) requestPermission();
-  }, [hasPermission]);
-
   if (!hasPermission) {
     return (
       <View style={styles.center}>
         <StatusBar style="light" />
-        {/* <Ionicons name="camera-off-outline" size={48} color={colors.accentSoft} /> */}
         <Text style={styles.permText}>Precisamos da câmera</Text>
         <Pressable style={styles.permBtn} onPress={requestPermission}>
           <Text style={styles.permBtnText}>Permitir acesso</Text>
@@ -113,6 +121,27 @@ export default function CameraScreen() {
     .sort((a, b) => b.score - a.score)
     .slice(0, 4);
 
+  const nearest = labels[0];
+
+  // TTS: fala o objeto mais próximo se score > 60% e cooldown expirou
+  if (nearest && nearest.score >= 0.6) {
+    const t = Date.now();
+    const sameLabel = nearest.nome === lastSpoken.current;
+    const cooldownOk = t - lastSpokenAt.current > TTS_COOLDOWN_MS;
+    if (!sameLabel || cooldownOk) {
+      lastSpoken.current = nearest.nome;
+      lastSpokenAt.current = t;
+      Speech.stop();
+      Speech.speak(`${nearest.nome} à sua frente`, {
+        language: 'pt-BR',
+        rate: 1.1,
+        onStart: () => setSpeaking(true),
+        onDone: () => setSpeaking(false),
+        onStopped: () => setSpeaking(false),
+      });
+    }
+  }
+
   return (
     <View style={styles.flex}>
       <StatusBar style="light" />
@@ -124,33 +153,80 @@ export default function CameraScreen() {
         outputs={[frameOutput]}
       />
 
-      {/* Botão voltar */}
-      <Pressable style={styles.backBtn} onPress={() => router.back()}>
-        <Ionicons name="arrow-back" size={24} color={colors.text} />
-      </Pressable>
+      {/* Top HUD */}
+      <View style={styles.topHud}>
+        <View style={styles.aiChip}>
+          <View style={[styles.aiDot, detector.state === 'loaded' && styles.aiDotActive]} />
+          <Ionicons name="hardware-chip-outline" size={14} color="#4ecdc4" />
+          <Text style={styles.aiChipText}>
+            {detector.state === 'loaded' ? 'IA Ativa' : 'Carregando...'}
+          </Text>
+          {detector.state === 'loaded' && (
+            <Text style={styles.aiChipMs}>{ms.toFixed(0)}ms</Text>
+          )}
+        </View>
 
-      {/* HUD de detecções */}
-      <View style={styles.hud}>
-        <Text style={styles.hudMs}>
-          {detector.state !== 'loaded' ? `carregando modelo...` : `${ms.toFixed(0)} ms`}
-        </Text>
-        {labels.length > 0
-          ? labels.map((l, i) => (
-              <Text key={i} style={styles.hudLabel}>
-                {l.nome}
-                <Text style={styles.hudScore}> {Math.round(l.score * 100)}%</Text>
-              </Text>
-            ))
-          : detector.state === 'loaded' && (
-              <Text style={styles.hudEmpty}>nenhum objeto detectado</Text>
-            )}
+        {labels.length > 0 && (
+          <View style={styles.countChip}>
+            <Text style={styles.countChipText}>{labels.length} objeto{labels.length !== 1 ? 's' : ''}</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Bottom overlay */}
+      <View style={styles.bottomOverlay}>
+        {detector.state === 'loaded' && labels.length === 0 && (
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyText}>Nenhum objeto detectado</Text>
+          </View>
+        )}
+
+        {labels.length > 1 && (
+          <View style={styles.detectionList}>
+            {labels.slice(1).map((l, i) => (
+              <View key={i} style={styles.detectionItem}>
+                <Text style={styles.detectionName}>{l.nome}</Text>
+                <Text style={styles.detectionScore}>{Math.round(l.score * 100)}%</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {nearest && (
+          <View
+            style={styles.alertBox}
+            accessibilityLiveRegion="polite"
+            accessibilityLabel={`Obstáculo mais próximo: ${nearest.nome}`}
+          >
+            <View style={styles.alertDot} />
+            <Ionicons name="warning-outline" size={22} color="#ff4d4d" />
+            <Text style={styles.alertLabel}>{nearest.nome} à sua frente</Text>
+            {speaking
+              ? <Ionicons name="volume-high-outline" size={20} color="#9d7ff4" accessibilityLabel="Falando" />
+              : <Text style={styles.alertScore}>{Math.round(nearest.score * 100)}%</Text>
+            }
+          </View>
+        )}
+
+        {/* Stop button */}
+        <View style={styles.stopBar}>
+          <Pressable
+            style={({ pressed }) => [styles.stopBtn, pressed && { opacity: 0.8 }]}
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Parar navegação e voltar à tela principal"
+          >
+            <Ionicons name="close" size={24} color="#ff6b6b" />
+            <Text style={styles.stopText}>Parar Navegação</Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: '#000' },
+  flex: { flex: 1, backgroundColor: '#020110' },
   center: {
     flex: 1, backgroundColor: colors.bg,
     alignItems: 'center', justifyContent: 'center', gap: 16,
@@ -161,19 +237,63 @@ const styles = StyleSheet.create({
     paddingVertical: 12, borderRadius: 12,
   },
   permBtnText: { color: colors.text, fontWeight: '600', fontSize: 15 },
-  backBtn: {
-    position: 'absolute', top: 52, left: 16,
-    backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 20,
-    padding: 8,
+  topHud: {
+    position: 'absolute', top: 52, left: 16, right: 16,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
   },
-  hud: {
-    position: 'absolute', bottom: 40, left: 16, right: 16,
-    backgroundColor: 'rgba(5,3,15,0.75)', borderRadius: 16,
-    padding: 16, gap: 4,
-    borderWidth: 1, borderColor: 'rgba(124,92,255,0.3)',
+  aiChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: 'rgba(2,1,16,0.85)',
+    borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10,
+    borderWidth: 1.5, borderColor: 'rgba(78,205,196,0.35)',
   },
-  hudMs: { color: colors.accentSoft, fontSize: 11, marginBottom: 4 },
-  hudLabel: { color: colors.text, fontSize: 18, fontWeight: '700' },
-  hudScore: { color: colors.accentSoft, fontWeight: '400' },
-  hudEmpty: { color: colors.textMuted, fontSize: 14 },
+  aiDot: { width: 9, height: 9, borderRadius: 4.5, backgroundColor: 'rgba(78,205,196,0.3)' },
+  aiDotActive: { backgroundColor: '#4ecdc4' },
+  aiChipText: { color: '#ffffff', fontSize: 13, fontWeight: '700' },
+  aiChipMs: { color: '#7b70b0', fontSize: 12 },
+  countChip: {
+    backgroundColor: 'rgba(2,1,16,0.85)',
+    borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10,
+    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.12)',
+  },
+  countChipText: { color: '#ffffff', fontSize: 13, fontWeight: '700' },
+  bottomOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, gap: 8 },
+  alertBox: {
+    marginHorizontal: 16,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: 'rgba(2,1,16,0.92)',
+    borderRadius: 20, padding: 16,
+    borderWidth: 2, borderColor: 'rgba(255,77,77,0.6)',
+  },
+  alertDot: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#ff4d4d', flexShrink: 0 },
+  alertLabel: { color: '#ffffff', fontSize: 17, fontWeight: '800', flex: 1 },
+  alertScore: { color: '#ff4d4d', fontSize: 14, fontWeight: '700' },
+  detectionList: { marginHorizontal: 16, gap: 6 },
+  detectionItem: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    backgroundColor: 'rgba(2,1,16,0.7)',
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+  },
+  detectionName: { color: '#e0d8ff', fontSize: 15, fontWeight: '600' },
+  detectionScore: { color: '#b8aee8', fontSize: 14 },
+  emptyBox: {
+    marginHorizontal: 16,
+    backgroundColor: 'rgba(2,1,16,0.75)',
+    borderRadius: 16, padding: 16, alignItems: 'center',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+  },
+  emptyText: { color: colors.textMuted, fontSize: 15 },
+  stopBar: {
+    backgroundColor: '#020110',
+    paddingHorizontal: 24, paddingTop: 14, paddingBottom: 36,
+    borderTopWidth: 1.5, borderTopColor: 'rgba(255,255,255,0.07)',
+  },
+  stopBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12,
+    minHeight: 64, borderRadius: 20,
+    backgroundColor: 'rgba(240,82,82,0.12)',
+    borderWidth: 2.5, borderColor: 'rgba(240,82,82,0.6)',
+  },
+  stopText: { color: '#ff6b6b', fontSize: 20, fontWeight: '800' },
 });
