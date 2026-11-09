@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useAppTheme } from '../context/ThemeContext';
+import { useAppTheme, type SpeechRateKey, speechRates } from '../context/ThemeContext';
 import { type AppTheme, type FontSizeKey } from './theme/colors';
 
 function SectionLabel({ text, theme, fs }: { text: string; theme: AppTheme; fs: { xs: number } }) {
@@ -127,16 +127,68 @@ function FontSizeRow({
   );
 }
 
-export default function Settings() {
-  const { theme, isDark, toggleTheme, fontSizeKey, fs, setFontSize } = useAppTheme();
-  const [voice, setVoice] = useState('feminina');
-  const [vibration, setVibration] = useState(true);
+const SPEECH_RATE_OPTIONS: { label: string; value: SpeechRateKey; desc: string }[] = [
+  { label: 'Lenta',   value: 'lenta',        desc: '0.7×' },
+  { label: 'Normal',  value: 'normal',       desc: '1.0×' },
+  { label: 'Rápida',  value: 'rapida',       desc: '1.3×' },
+  { label: 'Veloz', value: 'veloz', desc: '1.6×' },
+];
 
-  const voiceOptions = [
-    { label: 'Feminina', value: 'feminina' },
-    { label: 'Masculina', value: 'masculina' },
-    { label: 'Neutra', value: 'neutra' },
-  ];
+function SpeechRateRow({
+  value, onChange, theme, fs, fontSizeKey,
+}: {
+  value: SpeechRateKey;
+  onChange: (v: SpeechRateKey) => void;
+  theme: AppTheme;
+  fs: { xs: number; sm: number; md: number; touchTarget: number };
+  fontSizeKey: FontSizeKey;
+}) {
+  return (
+    <View style={styles.segmentedWrapper}>
+      <View style={styles.row}>
+        <View style={[styles.rowIcon, { backgroundColor: theme.accent + '22', borderColor: theme.accent + '50' }]}>
+          <Ionicons name="speedometer-outline" size={22} color={theme.accent} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.rowLabel, { color: theme.text, fontSize: fs.md }]}>Velocidade da fala</Text>
+          <Text style={[styles.rowDesc, { color: theme.textMuted, fontSize: fs.sm }]}>Velocidade com que o Íris fala os alertas</Text>
+        </View>
+      </View>
+      <View style={[styles.segmentedRow, fontSizeKey === 'extra' && styles.segmentedRowColumn]}>
+        {SPEECH_RATE_OPTIONS.map(opt => {
+          const active = value === opt.value;
+          return (
+            <Pressable
+              key={opt.value}
+              onPress={() => onChange(opt.value)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={`Velocidade da fala: ${opt.label}, ${opt.desc}`}
+              style={[
+                styles.segment,
+                { minHeight: fs.touchTarget },
+                active
+                  ? { backgroundColor: theme.accentStrong, borderColor: theme.accent }
+                  : { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+              ]}
+            >
+              <Text style={[styles.segmentText, { fontSize: fs.sm, color: active ? '#fff' : theme.textMuted, fontWeight: active ? '800' : '500' }]}>
+                {opt.label}
+              </Text>
+              <Text style={[styles.segmentText, { fontSize: fs.xs, color: active ? 'rgba(255,255,255,0.75)' : theme.textSubtle }]}>
+                {opt.desc}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+export default function Settings() {
+  const { theme, isDark, toggleTheme, fontSizeKey, fs, setFontSize, speechRateKey, setSpeechRate } = useAppTheme();
+  const [vibration, setVibration] = useState(true);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
@@ -168,7 +220,7 @@ export default function Settings() {
             onToggle={toggleTheme}
             icon={isDark ? 'moon-outline' : 'sunny-outline'}
             color={theme.accent}
-            description={isDark ? 'Fundo escuro para menor fadiga ocular' : 'Fundo claro com alto contraste WCAG'}
+            description={isDark ? 'Fundo escuro para menor fadiga ocular' : 'Fundo claro com alto contraste'}
             theme={theme}
             fs={fs}
           />
@@ -178,39 +230,7 @@ export default function Settings() {
 
         <SectionLabel text="Voz e Áudio" theme={theme} fs={fs} />
         <Card theme={theme}>
-          <View style={styles.segmentedWrapper}>
-            <View style={styles.row}>
-              <View style={[styles.rowIcon, { backgroundColor: theme.success + '22', borderColor: theme.success + '50' }]}>
-                <Ionicons name="mic-outline" size={22} color={theme.success} />
-              </View>
-              <Text style={[styles.rowLabel, { color: theme.text, fontSize: fs.md }]}>Voz</Text>
-            </View>
-            <View style={styles.segmentedRow}>
-              {voiceOptions.map(opt => {
-                const active = voice === opt.value;
-                return (
-                  <Pressable
-                    key={opt.value}
-                    onPress={() => setVoice(opt.value)}
-                    accessibilityRole="radio"
-                    accessibilityState={{ selected: active }}
-                    accessibilityLabel={`Voz: ${opt.label}`}
-                    style={[
-                      styles.segment,
-                      { minHeight: fs.touchTarget },
-                      active
-                        ? { backgroundColor: theme.accentStrong, borderColor: theme.accent }
-                        : { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
-                    ]}
-                  >
-                    <Text style={[styles.segmentText, { fontSize: fs.sm, color: active ? '#fff' : theme.textMuted, fontWeight: active ? '800' : '500' }]}>
-                      {opt.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
+          <SpeechRateRow value={speechRateKey} onChange={setSpeechRate} theme={theme} fs={fs} fontSizeKey={fontSizeKey} />
         </Card>
       </ScrollView>
     </View>
@@ -277,6 +297,7 @@ const styles = StyleSheet.create({
   // Voice
   segmentedWrapper: { paddingVertical: 20 },
   segmentedRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  segmentedRowColumn: { flexDirection: 'column' },
   segment: {
     flex: 1, borderRadius: 14, borderWidth: 2,
     alignItems: 'center', justifyContent: 'center',

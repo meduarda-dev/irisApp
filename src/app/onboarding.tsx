@@ -9,23 +9,23 @@ const SLIDES = [
   {
     icon: 'eye-outline' as const,
     accent: '#9d7ff4',
-    title: 'Visão Inteligente',
+    title: 'Detecta Obstáculos',
     description:
-      'A câmera do seu celular detecta obstáculos e objetos ao redor em tempo real usando Inteligência Artificial avançada.',
+      'A câmera do celular identifica objetos e obstáculos ao redor em tempo real, usando Inteligência Artificial que funciona sem internet.',
   },
   {
     icon: 'location-outline' as const,
     accent: '#5b9cf6',
     title: 'Navegação Segura',
     description:
-      'O Íris informa qual é o obstáculo mais próximo e sua distância, ajudando você a se mover com segurança.',
+      'O Íris avisa qual obstáculo está mais perto e em qual direção, ajudando você a se mover com mais segurança.',
   },
   {
     icon: 'volume-high-outline' as const,
     accent: '#4ecdc4',
-    title: 'Voz em Português',
+    title: 'Fala em Português',
     description:
-      'Todos os alertas são falados em português brasileiro. Sem precisar olhar para a tela — o Íris fala por você.',
+      'Todos os alertas são falados em português brasileiro. Sem precisar olhar para a tela, o Íris fala por você.',
   },
 ];
 
@@ -57,7 +57,7 @@ export default function Onboarding() {
             accessibilityLabel="Pular introdução"
             style={({ pressed }) => [styles.skipBtn, pressed && { opacity: 0.6 }]}
           >
-            <Text style={[styles.skipText, { color: theme.textMuted, fontSize: fs.md }]}>Pular</Text>
+            <Text style={[styles.skipText, { color: theme.textMuted, fontSize: fs.md }]}>Pular introdução</Text>
           </Pressable>
         )}
       </View>
@@ -151,10 +151,12 @@ const styles = StyleSheet.create({
   dot: { height: 10, borderRadius: 5 },
   cta: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    flexWrap: 'wrap',
     minHeight: 64, borderRadius: 18,
+    paddingHorizontal: 24, paddingVertical: 16,
     shadowColor: '#7c5ce8',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.45, shadowRadius: 16, elevation: 8,
   },
-  ctaText: { color: '#fff', fontSize: 20, fontWeight: '800', letterSpacing: 0.3 },
+  ctaText: { color: '#fff', fontSize: 20, fontWeight: '800', letterSpacing: 0.3, flexShrink: 1 },
 });

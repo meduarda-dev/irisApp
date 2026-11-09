@@ -16,7 +16,7 @@ const FAQS = [
   },
   {
     q: 'Como ajustar a velocidade da voz?',
-    a: 'Acesse Configurações → Velocidade. Valores entre 0.8x e 1.2x são recomendados para melhor compreensão em movimento.',
+    a: 'Acesse Configurações → Voz e Áudio → Velocidade da fala. Escolha entre Lenta, Normal, Rápida ou Veloz.',
   },
   {
     q: 'A câmera não detectou um objeto. O que fazer?',
@@ -40,7 +40,7 @@ type Tab = 'tutorial' | 'faq' | 'contact';
 
 const TABS: { id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { id: 'tutorial', label: 'Tutorial', icon: 'book-outline' },
-  { id: 'faq', label: 'FAQ', icon: 'chatbubble-outline' },
+  { id: 'faq', label: 'Dúvidas', icon: 'chatbubble-outline' },
   { id: 'contact', label: 'Suporte', icon: 'call-outline' },
 ];
 
@@ -156,38 +156,14 @@ export default function Help() {
           <View style={{ gap: 14 }} accessibilityLabel="Contato e suporte">
             <View style={[styles.contactCard, { backgroundColor: theme.accentDim, borderColor: theme.accentBorder }]}>
               <View style={[styles.contactIcon, { backgroundColor: theme.accentDim, borderColor: theme.accentBorder }]}>
-                <Ionicons name="chatbubble-outline" size={28} color={theme.accent} />
+                <Ionicons name="mail" size={28} color={theme.accent} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.contactTitle, { color: theme.text, fontSize: fs.lg }]}>Chat de Suporte</Text>
+                <Text style={[styles.contactTitle, { color: theme.text, fontSize: fs.lg }]}>Email para Suporte</Text>
                 <Text style={[styles.contactDesc, { color: theme.textMuted, fontSize: fs.sm, lineHeight: fs.sm * fs.lineHeightRatio }]}>
-                  Atendimento em português. Seg–Sex, 8h–18h.
+                  rochaeduarda98133@gmail.com
                 </Text>
-                <Pressable
-                  accessibilityLabel="Iniciar chat de suporte"
-                  style={({ pressed }) => [styles.chatBtn, { backgroundColor: theme.accentStrong, minHeight: fs.touchTarget }, pressed && { opacity: 0.8 }]}
-                >
-                  <Text style={[styles.chatBtnText, { fontSize: fs.md }]}>Iniciar chat</Text>
-                </Pressable>
               </View>
-            </View>
-
-            <View style={[styles.contactCard, { backgroundColor: theme.infoDim, borderColor: theme.infoBorder }]}>
-              <View style={[styles.contactIcon, { backgroundColor: theme.infoDim, borderColor: theme.infoBorder }]}>
-                <Ionicons name="call-outline" size={28} color={theme.info} />
-              </View>
-              <View>
-                <Text style={[styles.contactTitle, { color: theme.text, fontSize: fs.lg }]}>Telefone</Text>
-                <Text style={[styles.contactPhone, { color: theme.info, fontSize: fs.xl }]}>0800 123 4567</Text>
-                <Text style={[styles.contactDesc, { color: theme.textMuted, fontSize: fs.sm }]}>Gratuito · Seg–Sex · 8h–18h</Text>
-              </View>
-            </View>
-
-            <View style={[styles.emailNote, { backgroundColor: theme.successDim, borderColor: theme.successBorder }]}>
-              <Text style={[styles.emailText, { color: theme.textMuted, fontSize: fs.sm, lineHeight: fs.sm * fs.lineHeightRatio }]}>
-                📧 E-mail:{' '}
-                <Text style={{ color: theme.success, fontWeight: '700' }}>suporte@irisapp.com.br</Text>
-              </Text>
             </View>
           </View>
         )}
