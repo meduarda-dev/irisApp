@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppTheme } from '../context/ThemeContext';
 
 const SLIDES = [
@@ -18,7 +19,7 @@ const SLIDES = [
     accent: '#5b9cf6',
     title: 'Navegação Segura',
     description:
-      'O Íris avisa qual obstáculo está mais perto e em qual direção, ajudando você a se mover com mais segurança.',
+      'O Íris identifica os objetos mais próximos e fala o nome de cada um em voz alta, para você saber o que está ao redor sem precisar ver.',
   },
   {
     icon: 'volume-high-outline' as const,
@@ -31,6 +32,7 @@ const SLIDES = [
 
 export default function Onboarding() {
   const { theme, fs } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const [current, setCurrent] = useState(0);
   const slide = SLIDES[current];
 
@@ -82,7 +84,7 @@ export default function Onboarding() {
       </View>
 
       {/* Bottom */}
-      <View style={styles.bottom}>
+      <View style={[styles.bottom, { paddingBottom: Math.max(insets.bottom, 60) }]}>
         {/* Dots */}
         <View style={styles.dots}>
           {SLIDES.map((_, i) => (
@@ -146,7 +148,7 @@ const styles = StyleSheet.create({
   tagText: { fontSize: 14, fontWeight: '700' },
   heading: { fontSize: 30, fontWeight: '800', textAlign: 'center', lineHeight: 36 },
   body: { fontSize: 18, lineHeight: 30, textAlign: 'center' },
-  bottom: { paddingHorizontal: 28, paddingBottom: 44, gap: 16 },
+  bottom: { paddingHorizontal: 28, paddingBottom: 24, gap: 16 },
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginBottom: 4 },
   dot: { height: 10, borderRadius: 5 },
   cta: {

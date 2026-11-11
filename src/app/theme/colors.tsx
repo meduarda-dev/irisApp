@@ -135,7 +135,6 @@ export const lightTheme: AppTheme = {
   info: '#1A5FBF',
   infoDim: 'rgba(26,95,191,0.10)',
   infoBorder: 'rgba(26,95,191,0.30)',
-
   statusBar: 'dark' as const,
 };
 

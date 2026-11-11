@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppTheme, type SpeechRateKey, speechRates } from '../context/ThemeContext';
 import { type AppTheme, type FontSizeKey } from './theme/colors';
 
@@ -188,6 +189,7 @@ function SpeechRateRow({
 
 export default function Settings() {
   const { theme, isDark, toggleTheme, fontSizeKey, fs, setFontSize, speechRateKey, setSpeechRate } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const [vibration, setVibration] = useState(true);
 
   return (
@@ -210,7 +212,7 @@ export default function Settings() {
         <Text style={[styles.title, { color: theme.text, fontSize: fs.xxl }]}>Configurações</Text>
       </View>
 
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 48) }]}>
 
         <SectionLabel text="Aparência" theme={theme} fs={fs} />
         <Card theme={theme}>

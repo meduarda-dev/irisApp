@@ -2,12 +2,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as Speech from 'expo-speech';
 import { StatusBar } from 'expo-status-bar';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSharedValue, runOnJS } from 'react-native-reanimated';
+import { Asset } from 'expo-asset';
+import * as FileSystem from 'expo-file-system/legacy';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Camera, useCameraDevice, useCameraPermission, useFrameOutput } from 'react-native-vision-camera';
 import { useResizer } from 'react-native-vision-camera-resizer';
 import { useTensorflowModel } from 'react-native-fast-tflite';
-import { scheduleOnRN } from 'react-native-worklets';
+import { NitroModules } from 'react-native-nitro-modules';
 import { labelFor } from '../detection/labels';
 import { type Sample } from '../detection/useBenchmark';
 import { useAppTheme, speechRates } from '../context/ThemeContext';
@@ -27,35 +31,88 @@ const now = () => {
 type Detection = { cls: number; score: number; box: [number, number, number, number] };
 
 export default function CameraScreen() {
+  const params = useLocalSearchParams<{ tccConfig?: string }>();
+  const [modelUri, setModelUri] = useState<string | null>(null);
+
+  useEffect(() => {
+    Asset.fromModule(require('../assets/models/mobilenet_ssd.tflite'))
+      .downloadAsync()
+      .then(async (asset) => {
+        const dest = FileSystem.documentDirectory + 'mobilenet_ssd.tflite';
+        const info = await FileSystem.getInfoAsync(dest);
+        if (!info.exists) {
+          await FileSystem.copyAsync({ from: asset.localUri!, to: dest });
+        }
+        setModelUri(dest);
+      });
+  }, []);
+
+  if (!modelUri) {
+    return (
+      <View style={styles.center}>
+        <StatusBar style="light" />
+        <Text style={styles.permText}>Carregando modelo...</Text>
+      </View>
+    );
+  }
+
+  return <CameraInner modelUri={modelUri} tccConfigJson={params.tccConfig} />;
+}
+
+function CameraInner({ modelUri, tccConfigJson }: { modelUri: string; tccConfigJson?: string }) {
   const { speechRateKey } = useAppTheme();
-  const { width: screenW, height: screenH } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice('back');
   const [detections, setDetections] = useState<Detection[]>([]);
   const [ms, setMs] = useState(0);
   const [speaking, setSpeaking] = useState(false);
   const lastUpdate = useRef(0);
-  const lastSpoken = useRef('');
-  const lastSpokenAt = useRef(0);
+  const spokenSet = useRef<Set<string>>(new Set());
+  const speechQueue = useRef<string[]>([]);
+  const isSpeaking = useRef(false);
+  const lastQueuedAt = useRef(0);
 
-  // modo de medição TCC
-  const params = useLocalSearchParams<{ tccConfig?: string }>();
   const tccConfig = useRef<SessionConfig | null>(
-    params.tccConfig ? JSON.parse(params.tccConfig) : null
+    tccConfigJson ? JSON.parse(tccConfigJson) : null
   );
   const tcc = useTcc();
   const tccActive = tccConfig.current !== null;
 
-  const detector = useTensorflowModel(
-    require('../assets/models/mobilenet_ssd.tflite'),
-    delegates
-  );
+  const modelSource = useMemo(() => ({ url: modelUri }), [modelUri]);
+  const detector = useTensorflowModel(modelSource, delegates);
+
+  const boxedModelSV = useSharedValue<ReturnType<typeof NitroModules.box> | undefined>(undefined);
+  useEffect(() => {
+    boxedModelSV.value = detector.state === 'loaded'
+      ? NitroModules.box(detector.model)
+      : undefined;
+  }, [detector.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { resizer } = useResizer({
     width: 300, height: 300,
     channelOrder: 'rgb', dataType: 'uint8',
     pixelLayout: 'interleaved', scaleMode: 'cover',
   });
+
+  const speakNextRef = useRef<() => void>(null as any);
+  const speakNext = useCallback(() => {
+    if (speechQueue.current.length === 0) {
+      isSpeaking.current = false;
+      setSpeaking(false);
+      return;
+    }
+    const texto = speechQueue.current.shift()!;
+    isSpeaking.current = true;
+    setSpeaking(true);
+    Speech.speak(texto, {
+      language: 'pt-BR',
+      rate: speechRates[speechRateKey],
+      onDone: () => speakNextRef.current(),
+      onStopped: () => { isSpeaking.current = false; setSpeaking(false); },
+    });
+  }, [speechRateKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  speakNextRef.current = speakNext;
 
   const onResult = useCallback((_sample: Sample, items: Detection[], tPosMs: number, tsMs: number) => {
     const t = Date.now();
@@ -84,7 +141,7 @@ export default function CameraScreen() {
 
   // Para o TTS ao sair da tela
   useEffect(() => {
-    return () => { Speech.stop(); };
+    return () => { Speech.stop(); speechQueue.current = []; isSpeaking.current = false; };
   }, []);
 
   useEffect(() => {
@@ -95,7 +152,8 @@ export default function CameraScreen() {
     pixelFormat: 'yuv',
     onFrame(frame) {
       'worklet';
-      if (detector.state !== 'loaded' || resizer == null) { frame.dispose(); return; }
+      const model = boxedModelSV.value;
+      if (model == null || resizer == null) { frame.dispose(); return; }
 
       const t0 = now();
       const resized = resizer.resize(frame);
@@ -105,13 +163,14 @@ export default function CameraScreen() {
       const input = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
       const t1 = now();
 
-      const outputs = detector.model.runSync([input]);
+      const outputs = model.unbox().runSync([input]);
       const t2 = now();
 
       const boxes   = new Float32Array(outputs[0]!);
       const classes = new Float32Array(outputs[1]!);
       const scores  = new Float32Array(outputs[2]!);
       const count   = new Float32Array(outputs[3]!)[0];
+
       const items: Detection[] = [];
       for (let i = 0; i < count; i++) {
         if (scores[i] > 0.5) items.push({
@@ -122,15 +181,59 @@ export default function CameraScreen() {
       }
 
       const t3 = now();
-      scheduleOnRN(
-        onResult,
+      runOnJS(onResult)(
         { pre: t1 - t0, infer: t2 - t1, total: t2 - t0, end: t2, nDet: items.length },
         items,
-        t3 - t2,  // t_posprocessamento
-        t3,       // timestamp
+        t3 - t2,
+        t3,
       );
     },
   });
+
+  // TTS: enfileira objetos novos acima de 60% e fala em sequência
+  useEffect(() => {
+    const t = Date.now();
+    if (t - lastQueuedAt.current < TTS_COOLDOWN_MS) return;
+
+    const detected = detections
+      .map((d) => ({ nome: labelFor(d.cls), score: d.score, box: d.box }))
+      .filter((d) => d.nome !== '???' && d.score >= 0.6)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 4);
+
+    const novos = detected.filter(l => !spokenSet.current.has(l.nome));
+    if (novos.length === 0) return;
+
+    lastQueuedAt.current = t;
+    novos.forEach(l => spokenSet.current.add(l.nome));
+    setTimeout(() => spokenSet.current.clear(), TTS_COOLDOWN_MS);
+
+    novos.forEach((l) => {
+      const textoNarrado = `${l.nome} à sua frente`;
+      speechQueue.current.push(textoNarrado);
+      if (tccActive) {
+        const cfg = tccConfig.current!;
+        const [ymin, xmin, ymax, xmax] = l.box;
+        tcc.addDetectionEvent({
+          timestamp_ms: t,
+          classe_detectada: l.nome,
+          confianca: l.score,
+          bbox_x: xmin, bbox_y: ymin,
+          bbox_largura: xmax - xmin, bbox_altura: ymax - ymin,
+          isolado: novos.length === 1 ? 'sim' : 'nao',
+          detectou_esperado: cfg.objetosEsperados.length === 0
+            ? 'nao_aplicavel'
+            : cfg.objetosEsperados.includes(l.nome.trim().toLowerCase()) ? 'sim' : 'nao',
+          texto_narrado: textoNarrado,
+          detectedAt: t,
+          tempo_deteccao_ate_fala_ms: 0,
+          fala_iniciou: 'nao',
+        });
+      }
+    });
+
+    if (!isSpeaking.current) speakNext();
+  }, [detections]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!hasPermission) {
     return (
@@ -154,59 +257,11 @@ export default function CameraScreen() {
 
   const labels = detections
     .map((d) => ({ nome: labelFor(d.cls), score: d.score, box: d.box }))
-    .filter((d) => d.nome !== '???' )
+    .filter((d) => d.nome !== '???')
     .sort((a, b) => b.score - a.score)
     .slice(0, 4);
 
   const nearest = labels[0];
-
-  // TTS: fala o objeto mais próximo se score > 60% e cooldown expirou
-  if (nearest && nearest.score >= 0.6) {
-    const t = Date.now();
-    const sameLabel = nearest.nome === lastSpoken.current;
-    const cooldownOk = t - lastSpokenAt.current > TTS_COOLDOWN_MS;
-    if (!sameLabel || cooldownOk) {
-      lastSpoken.current = nearest.nome;
-      lastSpokenAt.current = t;
-      const textoNarrado = `${nearest.nome} à sua frente`;
-      const detectedAt = t;
-
-      // registrar evento TCC
-      if (tccActive) {
-        const cfg = tccConfig.current!;
-        const [ymin, xmin, ymax, xmax] = nearest.box;
-        tcc.addDetectionEvent({
-          timestamp_ms: t,
-          classe_detectada: nearest.nome,
-          confianca: nearest.score,
-          bbox_x: xmin,
-          bbox_y: ymin,
-          bbox_largura: xmax - xmin,
-          bbox_altura: ymax - ymin,
-          isolado: labels.length === 1 ? 'sim' : 'nao',
-          detectou_esperado: cfg.objetoEsperado === ''
-            ? 'nao_aplicavel'
-            : nearest.nome === cfg.objetoEsperado ? 'sim' : 'nao',
-          texto_narrado: textoNarrado,
-          detectedAt,
-          tempo_deteccao_ate_fala_ms: '',
-          fala_iniciou: 'nao',
-        });
-      }
-
-      Speech.stop();
-      Speech.speak(textoNarrado, {
-        language: 'pt-BR',
-        rate: speechRates[speechRateKey],
-        onStart: () => {
-          setSpeaking(true);
-          if (tccActive) tcc.markSpeechStarted(nearest.nome, Date.now());
-        },
-        onDone: () => setSpeaking(false),
-        onStopped: () => setSpeaking(false),
-      });
-    }
-  }
 
   return (
     <View style={styles.flex}>
@@ -219,38 +274,11 @@ export default function CameraScreen() {
         outputs={[frameOutput]}
       />
 
-      {/* Bounding boxes */}
-      {labels.map((l, i) => {
-        const [ymin, xmin, ymax, xmax] = l.box;
-        const isNearest = i === 0;
-        const color = isNearest ? '#ff4d4d' : '#9d7ff4';
-        return (
-          <View
-            key={i}
-            pointerEvents="none"
-            style={{
-              position: 'absolute',
-              left:   xmin * screenW,
-              top:    ymin * screenH,
-              width:  (xmax - xmin) * screenW,
-              height: (ymax - ymin) * screenH,
-              borderWidth: isNearest ? 2.5 : 1.5,
-              borderColor: color,
-              borderRadius: 6,
-            }}
-          >
-            <View style={[styles.boxLabel, { backgroundColor: color }]}>
-              <Text style={styles.boxLabelText} numberOfLines={1}>
-                {l.nome} {Math.round(l.score * 100)}%
-              </Text>
-            </View>
-          </View>
-        );
-      })}
+
 
       {/* HUD modo de medição */}
       {tccActive && (
-        <View style={styles.tccHud}>
+        <View style={styles.tccHud} accessible={false} importantForAccessibility="no-hide-descendants">
           <View style={[styles.tccBadge, {
             backgroundColor: tcc.phase === 'warmup' ? 'rgba(255,180,0,0.9)' :
               tcc.phase === 'recording' ? 'rgba(255,77,77,0.9)' : 'rgba(78,205,196,0.9)',
@@ -269,12 +297,12 @@ export default function CameraScreen() {
       )}
 
       {/* Top HUD */}
-      <View style={styles.topHud}>
+      <View style={styles.topHud} accessible={false} importantForAccessibility="no-hide-descendants">
         <View style={styles.aiChip}>
           <View style={[styles.aiDot, detector.state === 'loaded' && styles.aiDotActive]} />
           <Ionicons name="hardware-chip-outline" size={14} color="#4ecdc4" />
           <Text style={styles.aiChipText}>
-            {detector.state === 'loaded' ? 'IA Ativa' : 'Carregando...'}
+            {detector.state === 'loaded' ? 'IA Ativa' : detector.state === 'error' ? `Erro: ${detector.error?.message ?? 'falha'}` : 'Carregando...'}
           </Text>
           {detector.state === 'loaded' && (
             <Text style={styles.aiChipMs}>{ms.toFixed(0)}ms</Text>
@@ -291,13 +319,13 @@ export default function CameraScreen() {
       {/* Bottom overlay */}
       <View style={styles.bottomOverlay}>
         {detector.state === 'loaded' && labels.length === 0 && (
-          <View style={styles.emptyBox}>
+          <View style={styles.emptyBox} accessible={false} importantForAccessibility="no-hide-descendants">
             <Text style={styles.emptyText}>Nenhum objeto detectado</Text>
           </View>
         )}
 
         {labels.length > 1 && (
-          <View style={styles.detectionList}>
+          <View style={styles.detectionList} accessible={false} importantForAccessibility="no-hide-descendants">
             {labels.slice(1).map((l, i) => (
               <View key={i} style={styles.detectionItem}>
                 <Text style={styles.detectionName}>{l.nome}</Text>
@@ -310,8 +338,8 @@ export default function CameraScreen() {
         {nearest && (
           <View
             style={styles.alertBox}
-            accessibilityLiveRegion="polite"
-            accessibilityLabel={`Obstáculo mais próximo: ${nearest.nome}`}
+            accessible={false}
+            importantForAccessibility="no-hide-descendants"
           >
             <View style={styles.alertDot} />
             <Ionicons name="warning-outline" size={22} color="#ff4d4d" />
@@ -324,7 +352,7 @@ export default function CameraScreen() {
         )}
 
         {/* Stop button */}
-        <View style={styles.stopBar}>
+        <View style={[styles.stopBar, { paddingBottom: Math.max(insets.bottom, 16) }]}>
           <Pressable
             style={({ pressed }) => [styles.stopBtn, pressed && { opacity: 0.8 }]}
             onPress={() => router.back()}

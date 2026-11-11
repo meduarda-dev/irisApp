@@ -1,6 +1,7 @@
 import * as Device from 'expo-device';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useCallback, useRef, useState } from 'react';
+import * as Sharing from 'expo-sharing';
 import { summarize } from '../utils/stats';
 
 // ─── tipos públicos ────────────────────────────────────────────────────────────
@@ -9,8 +10,7 @@ export type TccPhase = 'idle' | 'warmup' | 'recording' | 'done';
 
 export type SessionConfig = {
   idCasoTeste: string;
-  objetoEsperado: string;
-  distancia_m: number;
+  objetosEsperados: string[];   // múltiplos objetos possíveis
   observacao: string;
 };
 
@@ -26,7 +26,7 @@ export type DetectionEvent = {
   detectou_esperado: 'sim' | 'nao' | 'nao_aplicavel';
   texto_narrado: string;
   detectedAt: number;
-  tempo_deteccao_ate_fala_ms: string;
+  tempo_deteccao_ate_fala_ms: number;
   fala_iniciou: 'sim' | 'nao';
 };
 
@@ -42,10 +42,18 @@ export type FrameRow = {
   num_deteccoes_acima_do_limiar: number;
 };
 
+export type ObjetoDetectado = {
+  classe: string;
+  ocorrencias: number;
+  confianca_media: number;
+  confianca_max: number;
+};
+
 export type SessionSummary = {
   totalFrames: number;
   totalEventos: number;
   taxaDetectouEsperado: string;
+  objetosDetectados: ObjetoDetectado[];
   fps: { mean: number; median: number; p95: number; std: number };
   pre: { mean: number; median: number; p95: number; std: number };
   infer: { mean: number; median: number; p95: number; std: number };
@@ -55,9 +63,8 @@ export type SessionSummary = {
 // ─── constantes ───────────────────────────────────────────────────────────────
 
 const WARMUP_MS = 5_000;
-const RECORD_MS = 60_000;
-const f = (n: number) => n.toFixed(3);
-const esc = (s: string) => `"${String(s).replace(/"/g, '""')}"`;
+const RECORD_MS = 30_000;
+const f = (n: number) => parseFloat(n.toFixed(3));
 
 // ─── hook ─────────────────────────────────────────────────────────────────────
 
@@ -183,7 +190,7 @@ export function useTccSession() {
 
     const cfg = configRef.current!;
 
-    if (cfg.objetoEsperado === '' && detectionEvents.current.length === 0) {
+    if (cfg.objetosEsperados.length === 0 && detectionEvents.current.length === 0) {
       detectionEvents.current.push({
         timestamp_ms: Date.now(),
         classe_detectada: '',
@@ -193,7 +200,7 @@ export function useTccSession() {
         detectou_esperado: 'nao_aplicavel',
         texto_narrado: '',
         detectedAt: 0,
-        tempo_deteccao_ate_fala_ms: '',
+        tempo_deteccao_ate_fala_ms: 0,
         fala_iniciou: 'nao',
       });
     }
@@ -203,11 +210,31 @@ export function useTccSession() {
     const esperados = events.filter(e => e.detectou_esperado === 'sim').length;
     const aplicaveis = events.filter(e => e.detectou_esperado !== 'nao_aplicavel').length;
 
+    // agrupa objetos detectados com confiança >= 50%
+    const mapaObjetos = new Map<string, { total: number; somaConf: number; maxConf: number }>();
+    for (const e of events) {
+      if (!e.classe_detectada) continue;
+      const entry = mapaObjetos.get(e.classe_detectada) ?? { total: 0, somaConf: 0, maxConf: 0 };
+      entry.total++;
+      entry.somaConf += e.confianca;
+      entry.maxConf = Math.max(entry.maxConf, e.confianca);
+      mapaObjetos.set(e.classe_detectada, entry);
+    }
+    const objetosDetectados: ObjetoDetectado[] = [...mapaObjetos.entries()]
+      .map(([classe, v]) => ({
+        classe,
+        ocorrencias: v.total,
+        confianca_media: f(v.somaConf / v.total),
+        confianca_max: f(v.maxConf),
+      }))
+      .sort((a, b) => b.ocorrencias - a.ocorrencias);
+
     const sum: SessionSummary = {
       totalFrames: frames.length,
       totalEventos: events.length,
       taxaDetectouEsperado: aplicaveis > 0
         ? `${((esperados / aplicaveis) * 100).toFixed(1)}%` : 'N/A',
+      objetosDetectados,
       fps: summarize(frames.map(r => r.fps_instantaneo).filter(v => v > 0)),
       pre: summarize(frames.map(r => r.t_preprocessamento_ms)),
       infer: summarize(frames.map(r => r.t_inferencia_ms)),
@@ -220,84 +247,46 @@ export function useTccSession() {
     onDoneRef.current?.();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── exportar CSVs ───────────────────────────────────────────────────────────
-  const exportCsvs = useCallback(async () => {
+  // ── exportar JSON ───────────────────────────────────────────────────────────
+  const exportJson = useCallback(async () => {
     const cfg = configRef.current!;
     const sid = sessionId.current;
     const sum = summaryRef.current!;
     const modelo = `${Device.brand ?? ''} ${Device.modelName ?? ''}`.trim();
-    const android = String(Device.osVersion ?? '');
-    const dir = FileSystem.documentDirectory;
 
-    // desempenho_frames.csv
-    const frameHead = [
-      'id_sessao','id_caso_teste','modelo_aparelho','versao_android',
-      'timestamp_ms','indice_quadro','t_captura_ms','t_preprocessamento_ms',
-      't_inferencia_ms','t_posprocessamento_ms','t_total_ms',
-      'fps_instantaneo','num_deteccoes_acima_do_limiar',
-    ].join(',');
-    const frameBody = frameRows.current.map(r => [
-      sid, esc(cfg.idCasoTeste), esc(modelo), android,
-      r.timestamp_ms, r.indice_quadro,
-      f(r.t_captura_ms), f(r.t_preprocessamento_ms),
-      f(r.t_inferencia_ms), f(r.t_posprocessamento_ms), f(r.t_total_ms),
-      f(r.fps_instantaneo), r.num_deteccoes_acima_do_limiar,
-    ].join(',')).join('\n');
-    const framePath = `${dir}desempenho_frames_${sid}.csv`;
-    await FileSystem.writeAsStringAsync(framePath, `${frameHead}\n${frameBody}`, { encoding: FileSystem.EncodingType.UTF8 });
+    const payload = {
+      sessao: {
+        id: sid,
+        id_caso_teste: cfg.idCasoTeste,
+        observacao: cfg.observacao,
+        distancia_m: null,   // preencher manualmente
+        dispositivo: { modelo, android: Device.osVersion ?? '' },
+      },
+      objetos_esperados: cfg.objetosEsperados,
+      objetos_detectados: sum.objetosDetectados,
+      metricas: {
+        total_frames: sum.totalFrames,
+        total_eventos: sum.totalEventos,
+        taxa_detectou_esperado: sum.taxaDetectouEsperado,
+        fps:   sum.fps,
+        pre_ms: sum.pre,
+        infer_ms: sum.infer,
+        total_ms: sum.total,
+      },
+      frames: frameRows.current,
+      eventos: detectionEvents.current,
+    };
 
-    // eventos_deteccao.csv
-    const evHead = [
-      'id_sessao','id_caso_teste','timestamp_ms','classe_detectada','confianca',
-      'bbox_x','bbox_y','bbox_largura','bbox_altura','distancia_m','objeto_esperado',
-      'isolado','detectou_esperado','texto_narrado','tempo_deteccao_ate_fala_ms',
-      'fala_iniciou','observacao','descricao_correta',
-    ].join(',');
-    const evBody = detectionEvents.current.map(e => [
-      sid, esc(cfg.idCasoTeste), e.timestamp_ms,
-      esc(e.classe_detectada), f(e.confianca),
-      f(e.bbox_x), f(e.bbox_y), f(e.bbox_largura), f(e.bbox_altura),
-      cfg.distancia_m, esc(cfg.objetoEsperado),
-      e.isolado, e.detectou_esperado,
-      esc(e.texto_narrado), e.tempo_deteccao_ate_fala_ms,
-      e.fala_iniciou, esc(cfg.observacao), '',
-    ].join(',')).join('\n');
-    const evPath = `${dir}eventos_deteccao_${sid}.csv`;
-    await FileSystem.writeAsStringAsync(evPath, `${evHead}\n${evBody}`, { encoding: FileSystem.EncodingType.UTF8 });
+    const fileUri = FileSystem.documentDirectory + 'sessoes.json';
+    const info = await FileSystem.getInfoAsync(fileUri);
+    const existing: typeof payload[] = info.exists
+      ? JSON.parse(await FileSystem.readAsStringAsync(fileUri))
+      : [];
+    existing.push(payload);
+    await FileSystem.writeAsStringAsync(fileUri, JSON.stringify(existing, null, 2));
 
-    // resumo_sessoes.csv (append)
-    const resumoPath = `${dir}resumo_sessoes.csv`;
-    const resumoHead = [
-      'id_sessao','id_caso_teste','modelo_aparelho','versao_android',
-      'distancia_m','objeto_esperado','observacao',
-      'total_frames','total_eventos','taxa_detectou_esperado',
-      'fps_media','fps_mediana','fps_p95','fps_dp',
-      'pre_media_ms','pre_mediana_ms','pre_p95_ms','pre_dp_ms',
-      'infer_media_ms','infer_mediana_ms','infer_p95_ms','infer_dp_ms',
-      'total_media_ms','total_mediana_ms','total_p95_ms','total_dp_ms',
-    ].join(',');
-    const resumoRow = [
-      sid, esc(cfg.idCasoTeste), esc(modelo), android,
-      cfg.distancia_m, esc(cfg.objetoEsperado), esc(cfg.observacao),
-      sum.totalFrames, sum.totalEventos, sum.taxaDetectouEsperado,
-      f(sum.fps.mean), f(sum.fps.median), f(sum.fps.p95), f(sum.fps.std),
-      f(sum.pre.mean), f(sum.pre.median), f(sum.pre.p95), f(sum.pre.std),
-      f(sum.infer.mean), f(sum.infer.median), f(sum.infer.p95), f(sum.infer.std),
-      f(sum.total.mean), f(sum.total.median), f(sum.total.p95), f(sum.total.std),
-    ].join(',');
-
-    const existing = await FileSystem.getInfoAsync(resumoPath);
-    const resumoContent = existing.exists
-      ? `${(await FileSystem.readAsStringAsync(resumoPath)).trimEnd()}\n${resumoRow}`
-      : `${resumoHead}\n${resumoRow}`;
-    await FileSystem.writeAsStringAsync(resumoPath, resumoContent, { encoding: FileSystem.EncodingType.UTF8 });
-
-    // compartilhar sequencialmente
-    const Sharing = await import('expo-sharing');
-    for (const path of [framePath, evPath, resumoPath]) {
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(path, { mimeType: 'text/csv', dialogTitle: 'Exportar CSV' });
-      }
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(fileUri, { mimeType: 'application/json', dialogTitle: 'Exportar sessão TCC' });
     }
   }, []);
 
@@ -321,7 +310,7 @@ export function useTccSession() {
     addFrame,
     addDetectionEvent,
     markSpeechStarted,
-    exportCsvs,
+    exportJson,
     reset,
   };
 }

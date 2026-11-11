@@ -3,12 +3,13 @@ import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppTheme } from '../context/ThemeContext';
 
 const FAQS = [
   {
     q: 'Como funciona a detecção de objetos?',
-    a: 'O Íris usa a câmera do celular junto com IA para identificar objetos em tempo real. Cada objeto detectado recebe um nome e uma distância estimada, falada em voz alta.',
+    a: 'O Íris usa a câmera do celular junto com IA para identificar objetos em tempo real. Cada objeto detectado tem seu nome falado em voz alta automaticamente.',
   },
   {
     q: 'O aplicativo funciona sem internet?',
@@ -32,7 +33,7 @@ const STEPS = [
   { n: 1, title: 'Abra o aplicativo', desc: 'O Íris iniciará automaticamente no modo pronto.' },
   { n: 2, title: "Toque em 'Iniciar Navegação'", desc: 'O grande botão roxo na tela inicial.' },
   { n: 3, title: 'Aponte a câmera', desc: 'Dirija o celular para a direção que deseja explorar.' },
-  { n: 4, title: 'Ouça os alertas', desc: 'O Íris falará o nome e distância de cada obstáculo detectado.' },
+  { n: 4, title: 'Ouça os alertas', desc: 'O Íris falará o nome de cada objeto detectado ao redor.' },
   { n: 5, title: 'Para parar', desc: 'Toque no botão vermelho na parte inferior da tela de navegação.' },
 ];
 
@@ -46,6 +47,7 @@ const TABS: { id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] =
 
 export default function Help() {
   const { theme, fs } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<Tab>('tutorial');
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
@@ -96,7 +98,7 @@ export default function Help() {
         })}
       </View>
 
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 60) }]}>
 
         {/* Tutorial */}
         {tab === 'tutorial' && (

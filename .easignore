@@ -1,0 +1,11 @@
+node_modules/
+.expo/
+dist/
+web-build/
+
+# Android build cache (não necessário para o EAS build remoto)
+android/.cxx/
+android/.gradle/
+android/.kotlin/
+android/app/build/
+android/build/

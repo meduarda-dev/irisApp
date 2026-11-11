@@ -19,8 +19,7 @@ export default function BenchmarkScreen() {
   const params = useLocalSearchParams<{ summary?: string }>();
 
   const [idCasoTeste, setIdCasoTeste] = useState('CT01');
-  const [objetoEsperado, setObjetoEsperado] = useState('');
-  const [distancia, setDistancia] = useState('1.0');
+  const [objetosInput, setObjetosInput] = useState('');   // ex: "pessoa, cadeira"
   const [observacao, setObservacao] = useState('');
   const [exporting, setExporting] = useState(false);
 
@@ -32,7 +31,7 @@ export default function BenchmarkScreen() {
   const handleExport = async () => {
     setExporting(true);
     try {
-      await tcc.exportCsvs();
+      await tcc.exportJson();
     } catch (e) {
       Alert.alert('Erro ao exportar', String(e));
     } finally {
@@ -40,13 +39,16 @@ export default function BenchmarkScreen() {
     }
   };
 
-  const canStart = idCasoTeste.trim().length > 0 && Number(distancia) > 0;
+  const canStart = idCasoTeste.trim().length > 0;
 
   const handleStart = () => {
+    const objetosEsperados = objetosInput
+      .split(',')
+      .map(s => s.trim().toLowerCase())
+      .filter(Boolean);
     const cfg: SessionConfig = {
       idCasoTeste: idCasoTeste.trim(),
-      objetoEsperado: objetoEsperado.trim(),
-      distancia_m: Number(distancia),
+      objetosEsperados,
       observacao: observacao.trim(),
     };
     router.push({ pathname: '/camera', params: { tccConfig: JSON.stringify(cfg) } });
@@ -97,25 +99,14 @@ export default function BenchmarkScreen() {
             />
           </Field>
 
-          <Field label="Objeto esperado" hint="classe COCO em inglês, ex.: cup (deixe vazio para parede lisa)">
+          <Field label="Objetos esperados" hint="nomes em português separados por vírgula, ex.: pessoa, cadeira">
             <TextInput
-              value={objetoEsperado}
-              onChangeText={setObjetoEsperado}
+              value={objetosInput}
+              onChangeText={setObjetosInput}
               style={[styles.input, { color: theme.text, borderColor: theme.border, fontSize: fs.md }]}
               placeholderTextColor={theme.textSubtle}
-              placeholder="cup"
+              placeholder="pessoa, cadeira"
               autoCapitalize="none"
-            />
-          </Field>
-
-          <Field label="Distância (m) *" hint="ex.: 0.5 ou 2">
-            <TextInput
-              value={distancia}
-              onChangeText={setDistancia}
-              style={[styles.input, { color: theme.text, borderColor: theme.border, fontSize: fs.md }]}
-              placeholderTextColor={theme.textSubtle}
-              placeholder="1.0"
-              keyboardType="decimal-pad"
             />
           </Field>
 
@@ -137,7 +128,7 @@ export default function BenchmarkScreen() {
         <View style={[styles.infoBox, { backgroundColor: theme.accentDim, borderColor: theme.accentBorder }]}>
           <Ionicons name="information-circle-outline" size={18} color={theme.accent} />
           <Text style={[styles.infoText, { color: theme.textMuted, fontSize: fs.sm }]}>
-            5 s de aquecimento (não gravados) + 60 s de gravação. A sessão encerra automaticamente.
+            5 s de aquecimento (não gravados) + 30 s de gravação. A sessão encerra automaticamente.
           </Text>
         </View>
 
@@ -178,7 +169,7 @@ export default function BenchmarkScreen() {
             >
               <Ionicons name="share-outline" size={22} color={theme.success} />
               <Text style={[styles.exportBtnText, { color: theme.success, fontSize: fs.md }]}>
-                {exporting ? 'Exportando...' : 'Exportar CSVs'}
+                {exporting ? 'Exportando...' : 'Exportar JSON'}
               </Text>
             </Pressable>
 

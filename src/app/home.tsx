@@ -3,12 +3,14 @@ import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppTheme } from '../context/ThemeContext';
 
 const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 
 export default function Home() {
   const { theme, fs, fontSizeKey } = useAppTheme();
+  const insets = useSafeAreaInsets();
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
@@ -143,7 +145,7 @@ export default function Home() {
 
       {/* 5 — Versão no rodapé */}
       <Text
-        style={[styles.version, { color: theme.textSubtle, fontSize: fs.xs }]}
+        style={[styles.version, { color: theme.textSubtle, fontSize: fs.xs, paddingBottom: Math.max(insets.bottom, 20) }]}
         accessibilityLabel={`Versão do aplicativo ${APP_VERSION}`}
       >
         Íris v{APP_VERSION}
